@@ -36,10 +36,12 @@ const (
 )
 
 type Reply struct {
-	JobType     JobType
-	NumReducers int
-	Filename    string
-	Quit        bool
+	JobType JobType
+	// ReducerNum  int
+	NumReducers    int
+	Filename       string
+	OutputFilename string
+	Quit           bool
 }
 
 // Add your RPC definitions here.

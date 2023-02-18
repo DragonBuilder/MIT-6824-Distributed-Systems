@@ -1,21 +1,33 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"sort"
 )
 
 type Master struct {
 	// Your definitions here.
-	Filenames      []string
-	NumReducers    int
-	processedIndex int
-	workers        []worker
+	Filenames     []string
+	NumReducers   int
+	mapTaskNum    int
+	reduceTaskNum int
+	// mapTaskProcessedIndex int
+	workers []worker
 	// startReduce    bool
 }
+
+// for sorting by key.
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 type workerState uint
 
@@ -37,11 +49,24 @@ func (m *Master) AssignTask(args *Args, reply *Reply) error {
 
 	// should be atomic ??
 
-	if m.processedIndex < len(m.Filenames) {
+	if m.mapTaskNum < len(m.Filenames) {
 		reply.JobType = Map
-		reply.Filename = m.Filenames[m.processedIndex]
+		reply.Filename = m.Filenames[m.mapTaskNum]
 		reply.NumReducers = m.NumReducers
-		m.processedIndex++
+		m.mapTaskNum++
+	} else if m.reduceTaskNum < m.NumReducers {
+		reply.JobType = Reduce
+		intermediateFilename := fmt.Sprintf(IntermediateResultsFilenameFormat, m.reduceTaskNum)
+		log.Println(intermediateFilename)
+		reply.Filename = intermediateFilename
+		reply.OutputFilename = fmt.Sprintf("mr-out-%d", m.reduceTaskNum)
+		// reply.NumReducers = m.NumReducers
+		m.reduceTaskNum++
+		// var data []KeyValue
+		data := readIntermediateFile(intermediateFilename)
+		// log.Println(data)
+		sort.Sort(ByKey(data))
+		writeIntermediateFile(intermediateFilename, data)
 	} else {
 		reply.Quit = true
 	}
