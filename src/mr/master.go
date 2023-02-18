@@ -18,6 +18,7 @@ type Master struct {
 	reduceTaskNum int
 	// mapTaskProcessedIndex int
 	workers []worker
+	done    bool
 	// startReduce    bool
 }
 
@@ -54,21 +55,24 @@ func (m *Master) AssignTask(args *Args, reply *Reply) error {
 		reply.Filename = m.Filenames[m.mapTaskNum]
 		reply.NumReducers = m.NumReducers
 		m.mapTaskNum++
+		log.Printf("Map task assigned - %s", reply.Filename)
 	} else if m.reduceTaskNum < m.NumReducers {
 		reply.JobType = Reduce
 		intermediateFilename := fmt.Sprintf(IntermediateResultsFilenameFormat, m.reduceTaskNum)
-		log.Println(intermediateFilename)
+		// log.Println(intermediateFilename)
 		reply.Filename = intermediateFilename
 		reply.OutputFilename = fmt.Sprintf("mr-out-%d", m.reduceTaskNum)
 		// reply.NumReducers = m.NumReducers
 		m.reduceTaskNum++
-		// var data []KeyValue
-		data := readIntermediateFile(intermediateFilename)
+		// var intermData []KeyValue
+		intrmdtData := readIntermediateFile(intermediateFilename)
 		// log.Println(data)
-		sort.Sort(ByKey(data))
-		writeIntermediateFile(intermediateFilename, data)
+		sort.Sort(ByKey(intrmdtData))
+		writeIntermediateFile(intermediateFilename, intrmdtData)
+		log.Printf("reduce task assigned - %s", reply.Filename)
 	} else {
 		reply.Quit = true
+		m.done = true
 	}
 
 	return nil
@@ -105,11 +109,10 @@ func (m *Master) server() {
 // if the entire job has finished.
 //
 func (m *Master) Done() bool {
-	ret := false
 
 	// Your code here.
 
-	return ret
+	return m.done
 }
 
 //
@@ -119,7 +122,6 @@ func (m *Master) Done() bool {
 //
 func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{Filenames: files, workers: make([]worker, 0), NumReducers: nReduce}
-
 	// Your code here.
 
 	m.server()
