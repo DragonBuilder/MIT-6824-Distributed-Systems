@@ -14,6 +14,9 @@ import (
 //
 // Map functions return a slice of KeyValue.
 //
+
+const IntermediateResultsFilenameFormat = "mr-0-%d.json"
+
 type KeyValue struct {
 	Key   string
 	Value string
@@ -49,10 +52,51 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			// doMap(reply, mapf)
 			kva := mapf(reply.Filename, fileContents(reply.Filename))
 			saveIntermediate(splitIntermediateResult(kva, reply.NumReducers))
+		} else if reply.JobType == Reduce {
+			// log.Println("reduce reading intermediate file: ", reply.Filename)
+			data := readIntermediateFile(reply.Filename)
+			// log.Fatalln(data)
+			reduced := doReduce(reducef, data)
+			writeOutput(reply.OutputFilename, []byte(reduced))
 		}
 	}
 	// uncomment to send the Example RPC to the master.
 	// CallExample()
+}
+
+func doReduce(reducef func(string, []string) string, intermediate []KeyValue) (output string) {
+	// reduced := make([]string, 0)
+	i := 0
+	for i < len(intermediate) {
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediate[k].Value)
+		}
+		reduced := reducef(intermediate[i].Key, values)
+		output += fmt.Sprintf("%v %v\n", intermediate[i].Key, reduced)
+
+		// this is the correct format for each line of Reduce output.
+		// fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+
+		i = j
+	}
+	return
+}
+
+func writeOutput(filename string, output []byte) {
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Fatalf("error opening %s file : %v", filename, err)
+	}
+	defer file.Close()
+
+	if _, err := file.Write(output); err != nil {
+		log.Fatalf("error writing to %s file : %v", filename, err)
+	}
 }
 
 func splitIntermediateResult(kva []KeyValue, numReducers int) map[string][]KeyValue {
@@ -61,7 +105,7 @@ func splitIntermediateResult(kva []KeyValue, numReducers int) map[string][]KeyVa
 		//should be atomic?
 		// log.Println(reply.NumReducers)
 		i := ihash(kv.Key) % numReducers
-		filename := fmt.Sprintf("intermediate-%d.json", i)
+		filename := fmt.Sprintf(IntermediateResultsFilenameFormat, i)
 		result[filename] = append(result[filename], kv)
 	}
 	return result
@@ -69,14 +113,15 @@ func splitIntermediateResult(kva []KeyValue, numReducers int) map[string][]KeyVa
 
 func saveIntermediate(intermediate map[string][]KeyValue) {
 	for filename, kvs := range intermediate {
-		var iData []KeyValue
-		readIntermediateFile(filename, iData)
+		// var iData []KeyValue
+		iData := readIntermediateFile(filename)
 		iData = append(iData, kvs...)
 		writeIntermediateFile(filename, iData)
 	}
 }
 
-func readIntermediateFile(filename string, iData []KeyValue) {
+func readIntermediateFile(filename string) []KeyValue {
+	var data []KeyValue
 	file, err := os.OpenFile(filename, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
 		log.Fatalf("error opening %s file : %v", filename, err)
@@ -84,11 +129,13 @@ func readIntermediateFile(filename string, iData []KeyValue) {
 	defer file.Close()
 
 	b, _ := ioutil.ReadAll(file)
+	// log.Println(string(b))
 
-	if err := json.Unmarshal(b, &iData); err != nil {
-		iData = make([]KeyValue, 0)
+	if err := json.Unmarshal(b, &data); err != nil {
+		data = make([]KeyValue, 0)
 		log.Printf("error unmarshalling json : %v\n", err)
 	}
+	return data
 }
 
 func writeIntermediateFile(filename string, iData []KeyValue) {
