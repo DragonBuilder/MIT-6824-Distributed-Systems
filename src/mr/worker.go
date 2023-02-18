@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 //
@@ -111,12 +112,15 @@ func splitIntermediateResult(kva []KeyValue, numReducers int) map[string][]KeyVa
 	return result
 }
 
+var m sync.Mutex
+
 func saveIntermediate(intermediate map[string][]KeyValue) {
 	for filename, kvs := range intermediate {
-		// var iData []KeyValue
+		m.Lock()
 		iData := readIntermediateFile(filename)
 		iData = append(iData, kvs...)
 		writeIntermediateFile(filename, iData)
+		m.Unlock()
 	}
 }
 
