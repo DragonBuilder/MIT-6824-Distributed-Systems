@@ -24,7 +24,27 @@ import (
 // 	Y int
 // }
 
-type Args struct {
+type RegisterWorkerArgs struct {
+}
+
+type RegisterWorkerReply struct {
+	Name string
+}
+
+type WorkerReadyArgs struct {
+	WorkerName string
+}
+
+type WorkerReadyReply struct {
+	JobType JobType
+	// ReducerNum  int
+	NumReducers    int
+	Filename       string
+	OutputFilename string
+	Quit           bool
+}
+
+type BlankArgs struct {
 }
 
 type JobType string
@@ -53,5 +73,11 @@ type Reply struct {
 func masterSock() string {
 	s := "/var/tmp/824-mr-"
 	s += strconv.Itoa(os.Getuid())
+	return s
+}
+
+func workerSock(name string) string {
+	s := "/var/tmp/824-mr-"
+	s += name
 	return s
 }

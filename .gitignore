@@ -6,3 +6,4 @@ mr-out-*
 src/main/mrworker
 src/main/mrmaster
 src/main/mrsequential
+src/main/mr-correct-wc.txt

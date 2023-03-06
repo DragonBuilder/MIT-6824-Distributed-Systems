@@ -7,6 +7,8 @@ import (
 	"hash/fnv"
 	"io/ioutil"
 	"log"
+	"net"
+	"net/http"
 	"net/rpc"
 	"os"
 	"sync"
@@ -40,29 +42,108 @@ func ihash(key string) int {
 //
 // main/mrworker.go calls this function.
 //
-func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+// func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 
+// 	// Your worker implementation here.
+
+// 	reply := Reply{}
+// 	for !reply.Quit {
+// 		call("Master.AssignTask", BlankArgs{}, &reply)
+// 		// log.Println(reply.Filename)
+
+// 		if reply.JobType == Map {
+// 			// doMap(reply, mapf)
+// 			kva := mapf(reply.Filename, fileContents(reply.Filename))
+// 			saveIntermediate(splitIntermediateResult(kva, reply.NumReducers))
+// 		} else if reply.JobType == Reduce {
+// 			// log.Println("reduce reading intermediate file: ", reply.Filename)
+// 			m.Lock()
+// 			data := readIntermediateFile(reply.Filename)
+// 			m.Unlock()
+// 			// log.Fatalln(data)
+// 			reduced := doReduce(reducef, data)
+// 			writeOutput(reply.OutputFilename, []byte(reduced))
+// 		}
+// 	}
+// 	// uncomment to send the Example RPC to the master.
+// 	// CallExample()
+// }
+
+type RunningWorker struct {
+	name    string
+	mapf    func(string, string) []KeyValue
+	reducef func(string, []string) string
+	done    chan bool
+}
+
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	// Your worker implementation here.
 
-	reply := Reply{}
-	for !reply.Quit {
-		call("Master.AssignTask", Args{}, &reply)
-		// log.Println(reply.Filename)
+	log.Println("registering worker")
 
+	reply := RegisterWorkerReply{}
+	call("Master.RegisterWorker", BlankArgs{}, &reply)
+
+	log.Printf("starting worker with name - %s\n", reply.Name)
+	rw := RunWorker(reply.Name, mapf, reducef)
+
+	log.Printf("worker waiting for tasks")
+	log.Printf("worker notifying master")
+
+	rw.askForTask()
+	<-rw.Done()
+}
+
+func RunWorker(name string, mapf func(string, string) []KeyValue, reducef func(string, []string) string) *RunningWorker {
+	rw := &RunningWorker{
+		name:    name,
+		mapf:    mapf,
+		reducef: reducef,
+		done:    make(chan bool),
+	}
+	rw.server()
+	return rw
+}
+
+func (rw *RunningWorker) Done() <-chan bool {
+	return rw.done
+}
+
+func (rw *RunningWorker) askForTask() {
+	reply := WorkerReadyReply{}
+	for !reply.Quit {
+		call("Master.WorkerReady", WorkerReadyArgs{rw.name}, &reply)
 		if reply.JobType == Map {
 			// doMap(reply, mapf)
-			kva := mapf(reply.Filename, fileContents(reply.Filename))
+			log.Printf("Map task received on file - %s", reply.Filename)
+			kva := rw.mapf(reply.Filename, fileContents(reply.Filename))
 			saveIntermediate(splitIntermediateResult(kva, reply.NumReducers))
 		} else if reply.JobType == Reduce {
 			// log.Println("reduce reading intermediate file: ", reply.Filename)
+			// m.Lock()
+			log.Printf("Reduce task received on file - %s", reply.Filename)
 			data := readIntermediateFile(reply.Filename)
+			// m.Unlock()
 			// log.Fatalln(data)
-			reduced := doReduce(reducef, data)
+			reduced := doReduce(rw.reducef, data)
 			writeOutput(reply.OutputFilename, []byte(reduced))
 		}
+		// call("Master.WorkerReady", WorkerReadyArgs{rw.name}, &reply)
 	}
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
+}
+
+func (rw RunningWorker) server() {
+	rpc.Register(rw)
+	rpc.HandleHTTP()
+	//l, e := net.Listen("tcp", ":1234")
+	sockname := workerSock(rw.name)
+	os.Remove(sockname)
+	l, e := net.Listen("unix", sockname)
+	if e != nil {
+		log.Fatal("listen error:", e)
+	}
+	go http.Serve(l, nil)
+
 }
 
 func doReduce(reducef func(string, []string) string, intermediate []KeyValue) (output string) {
